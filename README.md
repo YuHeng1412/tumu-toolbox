@@ -2,7 +2,7 @@
 
 一个**免安装**的网页计算工具，给土木 / 水利 / 交通专业的学生用。打开网页就能算，不用装软件、不用注册。
 
-**在线使用：** https://你的用户名.github.io/tumu-toolbox/
+**在线使用：** https://yuheng1412.github.io/tumu-toolbox/
 
 ---
 
