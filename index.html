@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="土木/水利/交通专业学生常用计算工具：单位换算、钢筋理论重量、坐标方位角。输入即出结果，免安装。">
+<title>土木学生工具箱</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 20px 16px 60px;
+    font-family: "Microsoft YaHei", -apple-system, sans-serif;
+    background: #f4f5f7; color: #1a1a1a;
+    max-width: 560px; margin-left: auto; margin-right: auto;
+  }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: #888; font-size: 13px; margin: 0 0 20px; }
+
+  /* 顶部模块切换 */
+  nav { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+  nav button {
+    flex: 1 1 auto; min-width: 88px; padding: 10px 8px;
+    font-size: 14px; font-family: inherit; cursor: pointer;
+    border: 1px solid #d8dade; border-radius: 8px;
+    background: #fff; color: #444;
+  }
+  nav button.active {
+    background: #2f6fed; border-color: #2f6fed; color: #fff; font-weight: 600;
+  }
+
+  /* 面板：一次只显示一个 */
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  .field { margin-bottom: 16px; }
+  label { display: block; font-size: 13px; color: #666; margin-bottom: 6px; }
+  select, input {
+    width: 100%; padding: 12px; font-size: 16px;
+    border: 1px solid #d8dade; border-radius: 8px;
+    background: #fff; color: #1a1a1a; font-family: inherit;
+  }
+  .row { display: flex; gap: 12px; }
+  .row > .field { flex: 1; }
+
+  .result {
+    margin-top: 8px; padding: 18px 16px;
+    background: #fff; border-radius: 10px;
+    border-left: 4px solid #2f6fed;
+    font-size: 17px; font-weight: 600; line-height: 1.6;
+    word-break: break-all; white-space: pre-line;
+  }
+
+  .hint { font-size: 12px; color: #888; line-height: 1.7; margin: 14px 0 10px; }
+
+  table {
+    width: 100%; border-collapse: collapse; font-size: 14px;
+    background: #fff; border-radius: 8px; overflow: hidden; margin-top: 6px;
+  }
+  th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #eef0f3; }
+  th { background: #f0f2f5; color: #555; font-weight: 600; font-size: 13px; }
+  tr:last-child td { border-bottom: none; }
+</style>
+</head>
+<body>
+
+  <h1>土木学生工具箱</h1>
+  <p class="sub">v1 · 3 个模块 · 持续更新</p>
+
+  <nav id="tabs"></nav>
+  <main id="panels"></main>
+
+<script>
+/* =========================================================================
+   架构说明（本次最重要的东西，值得读三遍）
+
+   每个模块 = 一个对象，四样东西：
+       id     唯一标识
+       name   显示在标签上的名字
+       html   这个模块的界面（一段 HTML 字符串）
+       init   界面插入页面后运行的函数，负责绑事件和算结果
+
+   加一个新模块 = 在 MODULES 数组里加一个对象，别的地方都不用改。
+
+   这就是「结构」的价值：加功能不会把已有功能搞坏。
+   ========================================================================= */
+
+/* ---------- 单位换算的数据：每个类别选一个基准单位 ---------- */
+const UNIT_DATA = {
+  '长度': { 'm': 1, 'mm': 0.001, 'cm': 0.01, 'km': 1000, 'ft': 0.3048, 'in': 0.0254 },
+  '力':   { 'N': 1, 'kN': 1000, 'kgf': 9.80665, 'tf': 9806.65 },
+  '压强': { 'Pa': 1, 'kPa': 1000, 'MPa': 1000000, 'N/mm²': 1000000, 'bar': 100000 },
+  '面积': { 'm²': 1, 'cm²': 0.0001, 'km²': 1000000, '亩': 2000 / 3, '公顷': 10000 },
+  '体积': { 'm³': 1, 'L': 0.001, 'cm³': 0.000001 },
+  '质量': { 'kg': 1, 't': 1000, 'g': 0.001 },
+  '流量': { 'm³/s': 1, 'L/s': 0.001, 'm³/h': 1 / 3600 },
+  '角度': { '度': 1, '弧度': 180 / Math.PI }
+};
+
+/* ---------- 小工具函数，多个模块共用 ---------- */
+
+// 把下拉框填满
+function fillSelect(selectEl, names) {
+  selectEl.innerHTML = '';
+  names.forEach(function (name) {
+    const option = document.createElement('option');
+    option.value = name;
+    option.textContent = name;
+    selectEl.appendChild(option);
+  });
+}
+
+// 数字太长就用科学计数法
+function fmt(n, digits) {
+  if (!isFinite(n)) return '—';
+  if (n !== 0 && (Math.abs(n) < 0.0001 || Math.abs(n) >= 1000000)) {
+    return n.toExponential(4);
+  }
+  return Number(n.toPrecision(digits || 10)).toString();
+}
+
+/* =========================================================================
+   模块定义
+   ========================================================================= */
+const MODULES = [
+
+  /* ---------------- 模块 1：单位换算 ---------------- */
+  {
+    id: 'unit',
+    name: '单位换算',
+    html: `
+      <div class="field"><label>单位类别</label><select class="js-cat"></select></div>
+      <div class="field"><label>数值</label>
+        <input class="js-value" type="number" value="1" inputmode="decimal"></div>
+      <div class="row">
+        <div class="field"><label>从</label><select class="js-from"></select></div>
+        <div class="field"><label>到</label><select class="js-to"></select></div>
+      </div>
+      <div class="result js-out">—</div>
+    `,
+    init: function (root) {
+      const catEl   = root.querySelector('.js-cat');
+      const valueEl = root.querySelector('.js-value');
+      const fromEl  = root.querySelector('.js-from');
+      const toEl    = root.querySelector('.js-to');
+      const outEl   = root.querySelector('.js-out');
+
+      function update() {
+        const units = UNIT_DATA[catEl.value];
+        const value = Number(valueEl.value);
+        if (!isFinite(value)) { outEl.textContent = '请输入数值'; return; }
+        const answer = value * units[fromEl.value] / units[toEl.value];
+        outEl.textContent = value + ' ' + fromEl.value + ' = ' + fmt(answer) + ' ' + toEl.value;
+      }
+
+      function loadUnits() {
+        const names = Object.keys(UNIT_DATA[catEl.value]);
+        fillSelect(fromEl, names);
+        fillSelect(toEl, names);
+        fromEl.selectedIndex = 0;
+        toEl.selectedIndex = names.length > 1 ? 1 : 0;
+        update();
+      }
+
+      fillSelect(catEl, Object.keys(UNIT_DATA));
+      catEl.addEventListener('change', loadUnits);
+      valueEl.addEventListener('input', update);
+      fromEl.addEventListener('change', update);
+      toEl.addEventListener('change', update);
+      loadUnits();
+    }
+  },
+
+  /* ---------------- 模块 2：钢筋理论重量 ---------------- */
+  {
+    id: 'rebar',
+    name: '钢筋重量',
+    html: `
+      <div class="row">
+        <div class="field"><label>直径 d（mm）</label>
+          <input class="js-d" type="number" value="12" inputmode="decimal"></div>
+        <div class="field"><label>总长度（m）</label>
+          <input class="js-len" type="number" value="1" inputmode="decimal"></div>
+      </div>
+      <div class="result js-out">—</div>
+      <p class="hint">
+        公式：单位重量 = 0.00617 × d²（kg/m）<br>
+        这是行业通用常数，本质就是「截面积 × 钢材密度」。
+        下面的表格由同一个公式实时算出，可以互相验证。
+      </p>
+      <table>
+        <tr><th>直径 d (mm)</th><th>单位重量 (kg/m)</th><th>1 吨约合 (m)</th></tr>
+        <tbody class="js-table"></tbody>
+      </table>
+    `,
+    init: function (root) {
+      const dEl   = root.querySelector('.js-d');
+      const lenEl = root.querySelector('.js-len');
+      const outEl = root.querySelector('.js-out');
+      const tbody = root.querySelector('.js-table');
+
+      // 全模块唯一的公式，只写一处
+      function unitWeight(d) { return 0.00617 * d * d; }
+
+      function update() {
+        const d = Number(dEl.value);
+        const len = Number(lenEl.value);
+        if (!isFinite(d) || d <= 0) { outEl.textContent = '请输入直径'; return; }
+        const w = unitWeight(d);
+        let text = 'φ' + d + ' 单位重量 = ' + w.toFixed(4) + ' kg/m';
+        if (isFinite(len) && len > 0) {
+          text += '\n' + len + ' m 总重 = ' + (w * len).toFixed(3) + ' kg';
+        }
+        text += '\n1 吨约合 ' + (1000 / w).toFixed(1) + ' m';
+        outEl.textContent = text;
+      }
+
+      // 常用直径速查表：用同一个公式生成，保证表和数据永远对得上
+      const COMMON = [6, 8, 10, 12, 14, 16, 18, 20, 22, 25, 28, 32];
+      COMMON.forEach(function (d) {
+        const w = unitWeight(d);
+        const tr = document.createElement('tr');
+        tr.innerHTML = '<td>φ' + d + '</td><td>' + w.toFixed(3) +
+                       '</td><td>' + (1000 / w).toFixed(1) + '</td>';
+        tbody.appendChild(tr);
+      });
+
+      dEl.addEventListener('input', update);
+      lenEl.addEventListener('input', update);
+      update();
+    }
+  },
+
+  /* ---------------- 模块 3：坐标与方位角 ---------------- */
+  {
+    id: 'coord',
+    name: '坐标方位角',
+    html: `
+      <p class="hint" style="margin-top:0">
+        按测量坐标系约定：<b>x 轴指北、y 轴指东</b>，方位角自北方向顺时针量。
+        坐标顺序填错会得到错误结果，这是测量里最经典的坑。
+      </p>
+      <div class="row">
+        <div class="field"><label>起点 x₁（北）</label>
+          <input class="js-x1" type="number" value="0" inputmode="decimal"></div>
+        <div class="field"><label>起点 y₁（东）</label>
+          <input class="js-y1" type="number" value="0" inputmode="decimal"></div>
+      </div>
+      <div class="row">
+        <div class="field"><label>终点 x₂（北）</label>
+          <input class="js-x2" type="number" value="100" inputmode="decimal"></div>
+        <div class="field"><label>终点 y₂（东）</label>
+          <input class="js-y2" type="number" value="100" inputmode="decimal"></div>
+      </div>
+      <div class="result js-out">—</div>
+    `,
+    init: function (root) {
+      const outEl = root.querySelector('.js-out');
+      const els = ['.js-x1', '.js-y1', '.js-x2', '.js-y2'].map(function (s) {
+        return root.querySelector(s);
+      });
+
+      // 十进制度 → 度分秒，测量成果常用这个格式
+      function toDMS(deg) {
+        const d = Math.floor(deg);
+        const m = Math.floor((deg - d) * 60);
+        const s = ((deg - d) * 60 - m) * 60;
+        return d + '°' + String(m).padStart(2, '0') + '′' +
+               s.toFixed(1).padStart(4, '0') + '″';
+      }
+
+      function update() {
+        const x1 = Number(els[0].value), y1 = Number(els[1].value);
+        const x2 = Number(els[2].value), y2 = Number(els[3].value);
+        if (![x1, y1, x2, y2].every(isFinite)) {
+          outEl.textContent = '请填全四个坐标'; return;
+        }
+
+        const dx = x2 - x1;   // 北向增量
+        const dy = y2 - y1;   // 东向增量
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        // atan2(东, 北) 直接得到自北顺时针的方位角
+        let az = Math.atan2(dy, dx) * 180 / Math.PI;
+        if (az < 0) az += 360;
+
+        outEl.textContent =
+          'Δx（北）= ' + fmt(dx, 8) + '\n' +
+          'Δy（东）= ' + fmt(dy, 8) + '\n' +
+          '水平距离 D = ' + fmt(dist, 10) + '\n' +
+          '方位角 α = ' + az.toFixed(4) + '°\n' +
+          '        = ' + toDMS(az);
+      }
+
+      els.forEach(function (el) { el.addEventListener('input', update); });
+      update();
+    }
+  }
+
+];
+
+/* =========================================================================
+   把 MODULES 渲染成页面 —— 这部分不用改
+   ========================================================================= */
+const tabsEl   = document.getElementById('tabs');
+const panelsEl = document.getElementById('panels');
+
+function showModule(id) {
+  panelsEl.querySelectorAll('.panel').forEach(function (p) {
+    p.classList.toggle('active', p.dataset.id === id);
+  });
+  tabsEl.querySelectorAll('button').forEach(function (b, i) {
+    b.classList.toggle('active', MODULES[i].id === id);
+  });
+}
+
+MODULES.forEach(function (mod, index) {
+  // 标签按钮
+  const btn = document.createElement('button');
+  btn.textContent = mod.name;
+  btn.addEventListener('click', function () { showModule(mod.id); });
+  tabsEl.appendChild(btn);
+
+  // 面板
+  const panel = document.createElement('div');
+  panel.className = 'panel';
+  panel.dataset.id = mod.id;
+  panel.innerHTML = mod.html;
+  panelsEl.appendChild(panel);
+
+  // 界面进 DOM 之后才能 init，否则 querySelector 找不到元素
+  mod.init(panel);
+
+  if (index === 0) showModule(mod.id);
+});
+
+/* =========================================================================
+   Roadmap / 待办：照着上面的模块加新的。做完一个就刷新看效果。
+
+   [ ] TODO 1（照抄级）加「几何计算」模块：
+          矩形面积、三角形面积（三边用海伦公式）、梯形面积、圆面积、圆柱体积。
+          做法：复制「钢筋重量」模块的结构，改 id / name / html / init。
+          验收：三边为 3、4、5 的三角形，面积必须正好是 6。
+
+   [ ] TODO 2（照抄级）给「单位换算」加一个「互换」按钮，
+          点一下把「从」和「到」对调。需要自己在 html 里加 <button>。
+
+   [ ] TODO 3（要查资料）加「点击结果复制」。
+          提示：搜 "navigator.clipboard.writeText"，在结果元素上监听 click。
+
+   [ ] TODO 4（要查资料）把模块抽到单独的 modules.js，用 script 标签引入。
+          注意两个坑：
+          (1) 这样之后不能再用 file:// 双击打开（浏览器安全限制），
+              需要起一个本地服务器。先自己想为什么，想不通来问我。
+          (2) 在 JS 里写字符串或注释，绝不能出现完整的 script 结束标签，
+              否则浏览器会认为脚本在这里提前结束，整页崩掉。
+              正确写法是把结束标签里的斜杠转义：<\/script>
+
+   ---------------------------------------------------------------------
+   下一批功能路线图（按「现在能不能做」分档）
+
+   A. 零门槛，现在就能做
+      - 单位换算加「密度」「速度」「功率」「能量」类别
+      - 三角形/梯形/圆的面积周长，圆柱棱柱锥体体积
+      - 一元二次方程求根、等差数列求和
+      - 常用统计：平均、标准差、最大最小
+      - 坡度互转：百分比 ↔ 角度 ↔ 千分数
+      - 钢筋按根数+长度算总重，按间距算每平米用量
+      - 混凝土/砂浆配合比按比例缩放
+      - 坐标正算：已知起点 + 方位角 + 距离，求终点坐标
+
+   B. 学了「线性代数」之后
+      - 二元/三元一次方程组求解
+      - 矩阵乘法、行列式
+      - 最小二乘直线拟合（测量数据处理要用）
+
+   C. 学了「高数」和专业课之后
+      - 数值积分（梯形法、辛普森法）
+      - 水力计算、断面面积、土方量
+      - 规范查表自动化
+
+   D. 要上线才有的功能
+      - 手机能打开、能分享链接
+      - 收藏常用换算 + 历史记录
+   ========================================================================= */
+</script>
+</body>
+</html>
