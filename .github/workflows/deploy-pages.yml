@@ -1,0 +1,50 @@
+name: Deploy to GitHub Pages
+
+# 触发条件：推送到 main 分支，或在网页上手动点运行
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# 这三个权限是 GitHub Pages 部署的硬性要求：
+#   contents 读代码、pages 写站点、id-token 用于部署凭证
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同一时间只跑一个部署，新推送取消排队中的旧部署
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 取出仓库代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Pages
+        uses: actions/configure-pages@v5
+        with:
+          # 关键：仓库还没启用 Pages 时，由工作流自动启用
+          enablement: true
+
+      - name: 准备待发布的文件
+        run: |
+          mkdir -p _site
+          cp index.html _site/
+          cp README.md _site/ 2>/dev/null || true
+
+      - name: 打包上传
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: 部署到 GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
